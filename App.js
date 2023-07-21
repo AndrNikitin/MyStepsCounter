@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Text, View, Button } from "react-native";
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
-import * as Pedometer from "expo-sensors";
+import * as Pedometer from "expo-sensors/build/Pedometer";
 import * as Notifications from "expo-notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
