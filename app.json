@@ -1,36 +1,39 @@
 {
   "expo": {
-    "name": "MySteps",
-    "slug": "MySteps",
+    "name": "MyStepsCounter",
+    "slug": "MyStepsCounter",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "permissions": [
-      "ACCESS_COARSE_LOCATION",
-      "ACCESS_FINE_LOCATION",
-      "BACKGROUND_LOCATION",
-      "FOREGROUND_SERVICE",
-      "NOTIFICATIONS"
-    ],
-    "assetBundlePatterns": ["**/*"],
+    "updates": {
+      "enabled": true,
+      "fallbackToCacheTimeout": 0
+    },
+    "notification": {
+      "color": "#000000",
+      "androidMode": "default",
+      "androidCollapsedTitle": "Steps and Location"
+    },
+    "permissions": ["location", "location-background", "pedometer"],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false
     },
     "android": {
-      "permissions": ["ACTIVITY_RECOGNITION"],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
-      }
+        "backgroundColor": "#FFFFFF"
+      },
+      "package": "com.qweasd555.myapp"
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
+    "extra": {
+      "eas": {
+        "projectId": "225f604e-68a7-4f07-beeb-877df8faf83e"
+      }
     }
   }
 }

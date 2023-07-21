@@ -1,155 +1,203 @@
-import React, { useState, useEffect } from "react";
-import { Text, View, Button } from "react-native";
-import * as Location from "expo-location";
-import * as TaskManager from "expo-task-manager";
+import { useState, useEffect } from "react";
+import { StyleSheet, Text, View } from "react-native";
 import { Pedometer } from "expo-sensors";
-import * as Notifications from "expo-notifications";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Location from "expo-location";
+import * as BackgroundFetch from "expo-background-fetch";
+import * as TaskManager from "expo-task-manager";
+import { Notifications } from "expo-notifications";
 
-const LOCATION_TASK_NAME = "background-location-task";
-const PEDOMETER_TASK_NAME = "background-pedometer-task";
+const TASK_NAME = "background-data-fetch";
+const NOTIFICATION_CHANNEL_ID = "background-data-fetch-channel";
 
 export default function App() {
-  const [isTracking, setIsTracking] = useState(false);
-  const [pedometerData, setPedometerData] = useState(null);
-  const [locationData, setLocationData] = useState(null);
+  const [isPedometerAvailable, setIsPedometerAvailable] = useState("checking");
+  const [pastStepCount, setPastStepCount] = useState(0);
+  const [currentStepCount, setCurrentStepCount] = useState(0);
+  const [location, setLocation] = useState(null);
+
+  const subscribe = async () => {
+    const isAvailable = await Pedometer.isAvailableAsync();
+    setIsPedometerAvailable(String(isAvailable));
+
+    if (isAvailable) {
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - 1);
+
+      const pastStepCountResult = await Pedometer.getStepCountAsync(start, end);
+      if (pastStepCountResult) {
+        setPastStepCount(pastStepCountResult.steps);
+      }
+
+      return Pedometer.watchStepCount((result) => {
+        setCurrentStepCount(result.steps);
+      });
+    }
+  };
 
   useEffect(() => {
-    (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        const { status: backgroundStatus } =
-          await Location.requestBackgroundPermissionsAsync();
-
-        if (status === "granted" && backgroundStatus === "granted") {
-          const isPedometerAvailable = await Pedometer.isAvailableAsync();
-          if (!isPedometerAvailable) {
-            console.log("Педометр недоступен");
-            return;
-          }
-
-          setIsTracking(true);
-          await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
-            accuracy: Location.Accuracy.High,
-            timeInterval: 60000,
-            distanceInterval: 0,
-            showsBackgroundLocationIndicator: true,
-          });
-
-          // Watch for step count changes
-          const subscription = Pedometer.watchStepCount((result) => {
-            setPedometerData(result.steps);
-            savePedometerData(result.steps);
-          });
-
-          // Watch for location changes
-          const locationSubscription = Location.watchPositionAsync(
-            {
-              accuracy: Location.Accuracy.High,
-              timeInterval: 60000,
-              distanceInterval: 0,
-            },
-            (result) => {
-              setLocationData(result.coords);
-              saveLocationData(result.coords);
-            }
-          );
-        } else {
-          setIsTracking(false);
-        }
-
-        const locationData = await AsyncStorage.getItem("locationData");
-
-        setLocationData(locationData ? JSON.parse(locationData) : null);
-
-        const pedometerData = await AsyncStorage.getItem("pedometerData");
-        setPedometerData(pedometerData ? JSON.parse(pedometerData) : null);
-      } catch (error) {
-        console.log(`Ошибка при получении данных: ${error}`);
-      }
-    })();
+    const subscription = subscribe();
+    return () => subscription && subscription.remove();
   }, []);
 
-  const clearData = async () => {
-    try {
-      await AsyncStorage.removeItem("locationData");
-      await AsyncStorage.removeItem("pedometerData");
-      setPedometerData(null);
-      setLocationData(null);
-    } catch (error) {
-      console.log(`Ошибка при очистке данных: ${error}`);
-    }
-  };
+  useEffect(() => {
+    const getLocation = async () => {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        console.log("Permission to access location was denied");
+        return;
+      }
 
-  const savePedometerData = async (steps) => {
-    try {
-      await AsyncStorage.setItem("pedometerData", JSON.stringify(steps));
-    } catch (error) {
-      console.log(`Ошибка при сохранении педометра: ${error}`);
-    }
-  };
+      let location = await Location.getCurrentPositionAsync({});
+      setLocation(location);
+    };
 
-  const saveLocationData = async (coords) => {
-    try {
-      await AsyncStorage.setItem("locationData", JSON.stringify(coords));
-    } catch (error) {
-      console.log(`Ошибка при сохранении локации: ${error}`);
+    getLocation();
+  }, []);
+
+  useEffect(() => {
+    const registerBackgroundFetch = async () => {
+      // Запрашиваем разрешение на доступ к местоположению и шагомеру в фоновом режиме
+      const { status: locationStatus } =
+        await Location.requestBackgroundPermissionsAsync();
+      if (locationStatus !== "granted") {
+        console.log("Permission to access location in background was denied");
+        return;
+      }
+
+      const { status: pedometerStatus } =
+        await Pedometer.requestPermissionsAsync();
+      if (pedometerStatus !== "granted") {
+        console.log("Permission to access pedometer in background was denied");
+        return;
+      }
+
+      await BackgroundFetch.registerTaskAsync(TASK_NAME, {
+        minimumInterval: 60, // 60 seconds
+        stopOnTerminate: false,
+        startOnBoot: true,
+        requiresNetworkConnectivity: true,
+        requiresBatteryNotLow: true,
+        requiresCharging: false,
+        allowsExecutionInForeground: false,
+        allowsBackgroundLocationUpdates: true,
+      });
+
+      await Notifications.createChannelAsync("channel-id", {
+        name: "Channel Name",
+        description: "Channel description",
+        sound: true,
+        priority: "high",
+      });
+
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: "Background Data Fetch",
+          body: "Fetching data...",
+        },
+        trigger: {
+          seconds: 1, // Send a notification immediately after registering the task
+        },
+        channelId: NOTIFICATION_CHANNEL_ID,
+      });
+    };
+
+    registerBackgroundFetch();
+  }, []);
+
+  useEffect(() => {
+    const fetchDataInForeground = async () => {
+      // Запрашиваем разрешение на доступ к местоположению и шагомеру в фоновом режиме,
+      // чтобы убедиться, что они будут доступны и в фоновом режиме
+      const { status: locationStatus } =
+        await Location.requestBackgroundPermissionsAsync();
+      if (locationStatus !== "granted") {
+        console.log("Permission to access location in background was denied");
+        return;
+      }
+
+      const { status: pedometerStatus } =
+        await Pedometer.requestPermissionsAsync();
+      if (pedometerStatus !== "granted") {
+        console.log("Permission to access pedometer in background was denied");
+        return;
+      }
+
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - 1);
+
+      const pastStepCountResult = await Pedometer.getStepCountAsync(start, end);
+      if (pastStepCountResult) {
+        setPastStepCount(pastStepCountResult.steps);
+      }
+
+      const locationResult = await Location.getCurrentPositionAsync({});
+      if (locationResult) {
+        setLocation(locationResult);
+      }
+    };
+
+    fetchDataInForeground();
+  }, []);
+
+  TaskManager.defineTask(TASK_NAME, async () => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - 1);
+
+    const stepCountResult = await Pedometer.getStepCountAsync(start, end);
+    if (stepCountResult) {
+      setCurrentStepCount(stepCountResult.steps);
     }
-  };
+
+    const locationResult = await Location.getCurrentPositionAsync({});
+    if (locationResult) {
+      setLocation(locationResult);
+    }
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: "Steps and Location",
+        body: `Steps: ${currentStepCount}, Location: ${location?.coords.latitude},${location?.coords.longitude}`,
+      },
+      trigger: {
+        seconds: 60, // Send a notification every minute
+      },
+      channelId: NOTIFICATION_CHANNEL_ID,
+    });
+
+    return BackgroundFetch.Result.NewData;
+  });
 
   return (
-    <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-      {isTracking ? (
-        <>
-          <Text>Steps: {pedometerData}</Text>
-          <Text>Location: {JSON.stringify(locationData)}</Text>
-          <Button title="Clear" onPress={clearData} />
-        </>
-      ) : (
-        <Text>Нет данных для работы</Text>
+    <View style={styles.container}>
+      <Text style={styles.text}>
+        Pedometer available: {isPedometerAvailable}
+      </Text>
+      <Text style={styles.text}>
+        Steps taken in the last 24 hours: {pastStepCount}
+      </Text>
+      <Text style={styles.text}>Current step count: {currentStepCount}</Text>
+      {location && (
+        <Text style={styles.text}>
+          Current location: {location.coords.latitude},
+          {location.coords.longitude}
+        </Text>
       )}
     </View>
   );
 }
 
-TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
-  if (error) {
-    console.log(`Ошибка при обработке локации: ${error}`);
-    return;
-  }
-  if (data) {
-    const { locations } = data;
-    try {
-      await AsyncStorage.setItem("locationData", JSON.stringify(locations));
-      sendNotification();
-    } catch (error) {
-      console.log(`Ошибка при сохранении локации: ${error}`);
-    }
-  }
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  text: {
+    fontSize: 20,
+    marginVertical: 10,
+  },
 });
-
-TaskManager.defineTask(PEDOMETER_TASK_NAME, ({ data: { steps }, error }) => {
-  if (error) {
-    console.log(`Ошибка при обработке педометра: ${error}`);
-    return;
-  }
-
-  try {
-    AsyncStorage.setItem("pedometerData", JSON.stringify(steps));
-    sendNotification();
-  } catch (error) {
-    console.log(`Ошибка при сохранении педометра: ${error}`);
-  }
-});
-
-const sendNotification = async () => {
-  const steps = await AsyncStorage.getItem("pedometerData");
-  const location = await AsyncStorage.getItem("locationData");
-  Notifications.scheduleNotificationAsync({
-    content: {
-      title: "Step Counter Update",
-      body: `Steps: ${steps}, Location: ${location}`,
-    },
-    trigger: null,
-  });
-};
