@@ -8,6 +8,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const LOCATION_TASK_NAME = "background-location-task";
 const PEDOMETER_TASK_NAME = "background-pedometer-task";
+const NOTIFICATION_TASK_NAME = "background-notification-task";
 
 export default function App() {
   const [isTracking, setIsTracking] = useState(false);
@@ -28,8 +29,18 @@ export default function App() {
             distanceInterval: 0,
             showsBackgroundLocationIndicator: true,
           });
-          Pedometer.watchStepCount((result) => {
-            setPedometerData(result.steps);
+          const end = new Date();
+          const start = new Date();
+          start.setDate(end.getDate() - 1);
+          const { steps } = await Pedometer.getStepCountAsync(start, end);
+          setPedometerData(steps);
+          await TaskManager.registerTaskAsync(PEDOMETER_TASK_NAME, {
+            taskName: PEDOMETER_TASK_NAME,
+            taskType: TaskManager.TaskType.INTERVAL,
+            interval: 60000,
+            options: {
+              startImmediately: true,
+            },
           });
         } else {
           setIsTracking(false);
@@ -81,13 +92,6 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
     const { locations } = data;
     try {
       await AsyncStorage.setItem("locationData", JSON.stringify(locations));
-      Notifications.scheduleNotificationAsync({
-        content: {
-          title: "Location Update",
-          body: JSON.stringify(locations),
-        },
-        trigger: null,
-      });
     } catch (error) {
       console.log(`Ошибка при сохранении локации: ${error}`);
     }
@@ -100,18 +104,44 @@ TaskManager.defineTask(PEDOMETER_TASK_NAME, async ({ data, error }) => {
     return;
   }
   if (data) {
-    const { steps } = data;
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - 1);
+    const { steps } = await Pedometer.getStepCountAsync(start, end);
     try {
       await AsyncStorage.setItem("pedometerData", JSON.stringify(steps));
-      Notifications.scheduleNotificationAsync({
-        content: {
-          title: "Pedometer Update",
-          body: `Steps: ${steps}`,
-        },
-        trigger: null,
-      });
     } catch (error) {
       console.log(`Ошибка при сохранении педометра: ${error}`);
     }
   }
 });
+
+TaskManager.defineTask(NOTIFICATION_TASK_NAME, async () => {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(end.getDate() - 1);
+  const { steps } = await Pedometer.getStepCountAsync(start, end);
+  const location = await Location.getLastKnownPositionAsync();
+  Notifications.scheduleNotificationAsync({
+    content: {
+      title: "Step Counter Update",
+      body: `Steps: ${steps}, Location: ${JSON.stringify(location)}`,
+    },
+    trigger: null,
+  });
+});
+
+(async () => {
+  try {
+    await TaskManager.registerTaskAsync(NOTIFICATION_TASK_NAME, {
+      taskName: NOTIFICATION_TASK_NAME,
+      taskType: TaskManager.TaskType.FOREGROUND_SERVICE,
+      interval: 60000,
+      options: {
+        startImmediately: true,
+      },
+    });
+  } catch (error) {
+    console.log(`Ошибка при регистрации задачи уведомлений: ${error}`);
+  }
+})();
