@@ -94,24 +94,24 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
   }
 });
 
-TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
+TaskManager.defineTask(PEDOMETER_TASK_NAME, async ({ data, error }) => {
   if (error) {
-    console.log(`Ошибка при обработке локации: ${error}`);
+    console.log(`Ошибка при обработке педометра: ${error}`);
     return;
   }
   if (data) {
-    const { locations } = data;
+    const { steps } = data;
     try {
-      await AsyncStorage.setItem("locationData", JSON.stringify(locations));
+      await AsyncStorage.setItem("pedometerData", JSON.stringify(steps));
       Notifications.scheduleNotificationAsync({
         content: {
-          title: "Location Update",
-          body: JSON.stringify(locations),
+          title: "Pedometer Update",
+          body: `Steps: ${steps}`,
         },
         trigger: null,
       });
     } catch (error) {
-      console.log(`Ошибка при сохранении локации: ${error}`);
+      console.log(`Ошибка при сохранении педометра: ${error}`);
     }
   }
 });
